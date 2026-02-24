@@ -1,0 +1,625 @@
+"""
+대한항공 영상면접 연습 - Streamlit 앱
+"""
+
+import streamlit as st
+import tempfile
+import time
+import json
+import os
+from datetime import datetime
+from pathlib import Path
+import queue
+import threading
+
+from streamlit_webrtc import webrtc_streamer, WebRtcMode, VideoProcessorBase
+import av
+import numpy as np
+from openai import OpenAI
+
+from questions import (
+    QUESTIONS, CATEGORIES,
+    get_questions_by_category,
+    get_random_questions,
+    get_question_by_id
+)
+
+# 페이지 설정
+st.set_page_config(
+    page_title="대한항공 영상면접 연습",
+    page_icon="✈️",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
+# CSS 스타일
+st.markdown("""
+<style>
+    .main-header {
+        font-size: 2rem;
+        font-weight: bold;
+        color: #1e3a5f;
+        margin-bottom: 0.5rem;
+    }
+    .sub-header {
+        color: #666;
+        margin-bottom: 2rem;
+    }
+    .question-box {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        padding: 2rem;
+        border-radius: 1rem;
+        margin: 1rem 0;
+        font-size: 1.3rem;
+        text-align: center;
+    }
+    .timer-box {
+        font-size: 3rem;
+        font-weight: bold;
+        text-align: center;
+        padding: 1rem;
+    }
+    .timer-warning {
+        color: #ff4444;
+        animation: pulse 1s infinite;
+    }
+    @keyframes pulse {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.5; }
+    }
+    .tip-box {
+        background: #f0f7ff;
+        padding: 1rem;
+        border-radius: 0.5rem;
+        margin: 0.5rem 0;
+    }
+    .score-box {
+        font-size: 3rem;
+        font-weight: bold;
+        text-align: center;
+        padding: 2rem;
+        border-radius: 1rem;
+    }
+    .score-high { background: #d4edda; color: #155724; }
+    .score-mid { background: #fff3cd; color: #856404; }
+    .score-low { background: #f8d7da; color: #721c24; }
+    .keyword-found {
+        background: #d4edda;
+        color: #155724;
+        padding: 0.3rem 0.8rem;
+        border-radius: 1rem;
+        margin: 0.2rem;
+        display: inline-block;
+    }
+    .keyword-missing {
+        background: #f8d7da;
+        color: #721c24;
+        padding: 0.3rem 0.8rem;
+        border-radius: 1rem;
+        margin: 0.2rem;
+        display: inline-block;
+    }
+    .category-card {
+        background: white;
+        padding: 1.5rem;
+        border-radius: 1rem;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        text-align: center;
+        cursor: pointer;
+        transition: transform 0.2s;
+    }
+    .category-card:hover {
+        transform: translateY(-5px);
+    }
+</style>
+""", unsafe_allow_html=True)
+
+
+# 세션 상태 초기화
+def init_session_state():
+    if 'page' not in st.session_state:
+        st.session_state.page = 'home'
+    if 'questions' not in st.session_state:
+        st.session_state.questions = []
+    if 'current_index' not in st.session_state:
+        st.session_state.current_index = 0
+    if 'phase' not in st.session_state:
+        st.session_state.phase = 'ready'  # ready, prep, recording, review, analyzing, result
+    if 'recorded_video' not in st.session_state:
+        st.session_state.recorded_video = None
+    if 'analysis_result' not in st.session_state:
+        st.session_state.analysis_result = None
+    if 'practice_history' not in st.session_state:
+        st.session_state.practice_history = []
+    if 'recording_frames' not in st.session_state:
+        st.session_state.recording_frames = []
+    if 'is_recording' not in st.session_state:
+        st.session_state.is_recording = False
+    if 'audio_frames' not in st.session_state:
+        st.session_state.audio_frames = []
+
+init_session_state()
+
+
+# OpenAI 클라이언트
+@st.cache_resource
+def get_openai_client():
+    api_key = st.secrets.get("OPENAI_API_KEY", os.environ.get("OPENAI_API_KEY"))
+    if api_key:
+        return OpenAI(api_key=api_key)
+    return None
+
+
+# 비디오 프로세서 (녹화용)
+class VideoRecorder(VideoProcessorBase):
+    def __init__(self):
+        self.frames = []
+        self.audio_frames = []
+        self.is_recording = False
+        self.lock = threading.Lock()
+
+    def recv(self, frame):
+        img = frame.to_ndarray(format="bgr24")
+
+        if self.is_recording:
+            with self.lock:
+                self.frames.append(img.copy())
+
+        return av.VideoFrame.from_ndarray(img, format="bgr24")
+
+    def recv_audio(self, frame):
+        if self.is_recording:
+            with self.lock:
+                self.audio_frames.append(frame.to_ndarray())
+        return frame
+
+
+# AI 분석 함수
+def analyze_answer(audio_path: str, question: str, keywords: list) -> dict:
+    """음성을 텍스트로 변환하고 AI 분석 수행"""
+    client = get_openai_client()
+    if not client:
+        return {
+            "error": "OpenAI API 키가 설정되지 않았습니다.",
+            "score": 0,
+            "transcript": "",
+            "structure": "분석 불가",
+            "keywords": [],
+            "missingKeywords": keywords,
+            "length": "분석 불가",
+            "suggestions": ["API 키를 설정해주세요"]
+        }
+
+    # 1. Whisper로 음성 → 텍스트
+    transcript = ""
+    try:
+        with open(audio_path, "rb") as audio_file:
+            transcription = client.audio.transcriptions.create(
+                model="whisper-1",
+                file=audio_file,
+                language="ko",
+                response_format="text"
+            )
+            transcript = transcription
+    except Exception as e:
+        transcript = f"[음성 인식 실패: {str(e)}]"
+
+    # 2. GPT로 답변 분석
+    analysis_prompt = f"""
+당신은 대한항공 객실승무원 면접 전문가입니다.
+지원자의 영상면접 답변을 분석해주세요.
+
+## 질문
+{question}
+
+## 지원자 답변 (음성 인식)
+{transcript}
+
+## 평가 기준 키워드
+{', '.join(keywords)}
+
+## 분석 요청
+다음 형식으로 JSON 응답해주세요:
+
+{{
+  "score": (0-100 점수),
+  "structure": (답변 구조 평가 - 두괄식인지, 논리적 흐름이 있는지),
+  "keywords": (답변에 포함된 키워드 배열),
+  "missingKeywords": (누락된 키워드 배열),
+  "length": (답변 길이 평가 - 적절/짧음/길음),
+  "suggestions": (개선 제안 3개 배열)
+}}
+
+평가 시 주의사항:
+- 승무원 면접 답변으로서 적절한지 평가
+- 진정성, 구체성, 논리성을 중점 평가
+- 실제 면접관 관점에서 피드백
+- 개선 제안은 구체적이고 실행 가능하게
+"""
+
+    try:
+        completion = client.chat.completions.create(
+            model="gpt-4o",
+            messages=[
+                {
+                    "role": "system",
+                    "content": "항공사 면접 전문가로서 답변을 분석합니다. 반드시 JSON 형식으로만 응답하세요."
+                },
+                {
+                    "role": "user",
+                    "content": analysis_prompt
+                }
+            ],
+            response_format={"type": "json_object"},
+            temperature=0.7
+        )
+
+        analysis = json.loads(completion.choices[0].message.content)
+        analysis["transcript"] = transcript
+        return analysis
+
+    except Exception as e:
+        return {
+            "error": str(e),
+            "score": 50,
+            "transcript": transcript,
+            "structure": "분석 중 오류 발생",
+            "keywords": [],
+            "missingKeywords": keywords,
+            "length": "분석 불가",
+            "suggestions": [f"오류: {str(e)}"]
+        }
+
+
+# ===== 페이지 렌더링 =====
+
+def render_home():
+    """홈페이지"""
+    st.markdown('<p class="main-header">✈️ 대한항공 영상면접 연습</p>', unsafe_allow_html=True)
+    st.markdown('<p class="sub-header">실전처럼 연습하고, AI 피드백으로 개선하세요</p>', unsafe_allow_html=True)
+
+    # 빠른 시작
+    st.subheader("🚀 빠른 시작")
+    col1, col2 = st.columns(2)
+
+    with col1:
+        if st.button("🎲 랜덤 5문제 연습", use_container_width=True, type="primary"):
+            st.session_state.questions = get_random_questions(5)
+            st.session_state.current_index = 0
+            st.session_state.phase = 'ready'
+            st.session_state.page = 'practice'
+            st.rerun()
+
+    with col2:
+        if st.button("📚 전체 문제 연습", use_container_width=True):
+            st.session_state.questions = QUESTIONS.copy()
+            st.session_state.current_index = 0
+            st.session_state.phase = 'ready'
+            st.session_state.page = 'practice'
+            st.rerun()
+
+    # 카테고리별 연습
+    st.subheader("📂 카테고리별 연습")
+    cols = st.columns(len(CATEGORIES))
+
+    for i, (cat_id, cat_info) in enumerate(CATEGORIES.items()):
+        with cols[i]:
+            if st.button(f"{cat_info['icon']} {cat_info['name']}", use_container_width=True):
+                st.session_state.questions = get_questions_by_category(cat_id)
+                st.session_state.current_index = 0
+                st.session_state.phase = 'ready'
+                st.session_state.page = 'practice'
+                st.rerun()
+
+    # 면접 흐름 안내
+    st.subheader("📋 영상면접 연습 흐름")
+    flow_cols = st.columns(4)
+
+    with flow_cols[0]:
+        st.info("**1. 질문 확인**\n\n화면에 질문 표시")
+    with flow_cols[1]:
+        st.info("**2. 준비시간**\n\n30초 생각 정리")
+    with flow_cols[2]:
+        st.info("**3. 답변 녹화**\n\n1분간 답변")
+    with flow_cols[3]:
+        st.info("**4. AI 분석**\n\n피드백 확인")
+
+    # 연습 기록
+    st.subheader("📊 내 연습 기록")
+    if st.session_state.practice_history:
+        for record in reversed(st.session_state.practice_history[-5:]):
+            with st.expander(f"**{record['question'][:30]}...** - {record['score']}점"):
+                st.write(f"**답변:** {record.get('transcript', '없음')[:200]}...")
+                st.write(f"**분석:** {record.get('structure', '없음')}")
+    else:
+        st.caption("아직 연습 기록이 없습니다. 위에서 연습을 시작해보세요!")
+
+
+def render_practice():
+    """연습 페이지"""
+    if not st.session_state.questions:
+        st.session_state.page = 'home'
+        st.rerun()
+        return
+
+    question = st.session_state.questions[st.session_state.current_index]
+    phase = st.session_state.phase
+
+    # 상단 네비게이션
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col1:
+        if st.button("← 홈으로"):
+            st.session_state.page = 'home'
+            st.session_state.phase = 'ready'
+            st.rerun()
+    with col2:
+        st.caption(f"{question.category_name} | {st.session_state.current_index + 1} / {len(st.session_state.questions)}")
+
+    # 질문 표시
+    st.markdown(f'<div class="question-box">{question.question}</div>', unsafe_allow_html=True)
+
+    # 비디오 영역
+    video_col, control_col = st.columns([2, 1])
+
+    with video_col:
+        if phase in ['ready', 'prep', 'recording']:
+            # 웹캠 스트리밍
+            ctx = webrtc_streamer(
+                key="video-interview",
+                mode=WebRtcMode.SENDRECV,
+                media_stream_constraints={
+                    "video": {"width": 640, "height": 480},
+                    "audio": True
+                },
+                video_processor_factory=VideoRecorder,
+                async_processing=True,
+            )
+
+            if ctx.video_processor:
+                st.session_state.video_processor = ctx.video_processor
+
+        elif phase == 'review' and st.session_state.recorded_video:
+            st.video(st.session_state.recorded_video)
+
+    with control_col:
+        if phase == 'ready':
+            st.markdown("### 준비되셨나요?")
+            st.markdown(f"- 준비시간: **{question.prep_time}초**")
+            st.markdown(f"- 답변시간: **{question.answer_time}초**")
+
+            if st.button("🎬 연습 시작", type="primary", use_container_width=True):
+                st.session_state.phase = 'prep'
+                st.session_state.prep_start_time = time.time()
+                st.rerun()
+
+        elif phase == 'prep':
+            elapsed = time.time() - st.session_state.get('prep_start_time', time.time())
+            remaining = max(0, question.prep_time - int(elapsed))
+
+            st.markdown("### ⏱️ 준비시간")
+            timer_class = "timer-warning" if remaining <= 10 else ""
+            st.markdown(f'<div class="timer-box {timer_class}">{remaining}초</div>', unsafe_allow_html=True)
+
+            st.markdown("**💡 팁:**")
+            for tip in question.tips:
+                st.markdown(f"- {tip}")
+
+            if remaining <= 0:
+                st.session_state.phase = 'recording'
+                st.session_state.record_start_time = time.time()
+                if hasattr(st.session_state, 'video_processor'):
+                    st.session_state.video_processor.is_recording = True
+                st.rerun()
+
+            if st.button("⏭️ 바로 시작", use_container_width=True):
+                st.session_state.phase = 'recording'
+                st.session_state.record_start_time = time.time()
+                if hasattr(st.session_state, 'video_processor'):
+                    st.session_state.video_processor.is_recording = True
+                st.rerun()
+
+            time.sleep(1)
+            st.rerun()
+
+        elif phase == 'recording':
+            elapsed = time.time() - st.session_state.get('record_start_time', time.time())
+            remaining = max(0, question.answer_time - int(elapsed))
+
+            st.markdown("### 🔴 녹화 중")
+            timer_class = "timer-warning" if remaining <= 10 else ""
+            st.markdown(f'<div class="timer-box {timer_class}">{remaining}초</div>', unsafe_allow_html=True)
+
+            if remaining <= 0 or st.button("⏹️ 답변 완료", type="primary", use_container_width=True):
+                if hasattr(st.session_state, 'video_processor'):
+                    st.session_state.video_processor.is_recording = False
+                st.session_state.phase = 'review'
+                st.rerun()
+
+            time.sleep(1)
+            st.rerun()
+
+        elif phase == 'review':
+            st.markdown("### 답변 완료!")
+
+            if st.button("🔄 다시 녹화", use_container_width=True):
+                st.session_state.phase = 'ready'
+                st.session_state.recorded_video = None
+                st.rerun()
+
+            if st.button("🤖 AI 분석 받기", type="primary", use_container_width=True):
+                st.session_state.phase = 'analyzing'
+                st.rerun()
+
+            if st.button("⏭️ 다음 문제", use_container_width=True):
+                if st.session_state.current_index < len(st.session_state.questions) - 1:
+                    st.session_state.current_index += 1
+                    st.session_state.phase = 'ready'
+                    st.session_state.recorded_video = None
+                else:
+                    st.session_state.page = 'home'
+                st.rerun()
+
+        elif phase == 'analyzing':
+            st.markdown("### 🔄 AI 분석 중...")
+            with st.spinner("음성을 텍스트로 변환하고 분석 중입니다..."):
+                # 실제 구현에서는 녹화된 오디오 파일로 분석
+                # 데모용 더미 분석
+                result = {
+                    "score": 75,
+                    "transcript": "녹화된 음성이 여기에 표시됩니다. 실제 배포 시 마이크 권한을 허용하면 음성 인식이 작동합니다.",
+                    "structure": "두괄식 구조로 잘 답변하셨습니다. 결론을 먼저 말하고 이유를 설명하는 방식이 좋습니다.",
+                    "keywords": ["서비스", "성장"],
+                    "missingKeywords": ["대한항공", "글로벌"],
+                    "length": "적절",
+                    "suggestions": [
+                        "대한항공만의 차별점을 더 구체적으로 언급해보세요",
+                        "본인의 경험을 더 자세히 이야기해보세요",
+                        "마무리 멘트를 추가하면 더 좋을 것 같습니다"
+                    ]
+                }
+                st.session_state.analysis_result = result
+
+                # 기록 저장
+                record = {
+                    "question": question.question,
+                    "category": question.category_name,
+                    "score": result["score"],
+                    "transcript": result["transcript"],
+                    "structure": result["structure"],
+                    "timestamp": datetime.now().isoformat()
+                }
+                st.session_state.practice_history.append(record)
+
+                st.session_state.phase = 'result'
+                st.rerun()
+
+        elif phase == 'result':
+            result = st.session_state.analysis_result
+
+            # 점수
+            score = result.get("score", 0)
+            score_class = "score-high" if score >= 80 else ("score-mid" if score >= 60 else "score-low")
+            st.markdown(f'<div class="score-box {score_class}">{score}점</div>', unsafe_allow_html=True)
+
+            # 탭으로 분석 결과 표시
+            tab1, tab2, tab3 = st.tabs(["📝 내 답변", "📊 분석", "💡 개선점"])
+
+            with tab1:
+                st.write(result.get("transcript", ""))
+
+            with tab2:
+                st.write(f"**구조:** {result.get('structure', '')}")
+                st.write(f"**길이:** {result.get('length', '')}")
+
+                st.write("**키워드:**")
+                keywords_html = ""
+                for kw in result.get("keywords", []):
+                    keywords_html += f'<span class="keyword-found">✓ {kw}</span> '
+                for kw in result.get("missingKeywords", []):
+                    keywords_html += f'<span class="keyword-missing">✗ {kw}</span> '
+                st.markdown(keywords_html, unsafe_allow_html=True)
+
+            with tab3:
+                for sug in result.get("suggestions", []):
+                    st.info(f"💡 {sug}")
+
+            st.divider()
+
+            col1, col2 = st.columns(2)
+            with col1:
+                if st.button("🔄 다시 연습", use_container_width=True):
+                    st.session_state.phase = 'ready'
+                    st.session_state.recorded_video = None
+                    st.session_state.analysis_result = None
+                    st.rerun()
+            with col2:
+                if st.button("⏭️ 다음 문제", use_container_width=True, type="primary"):
+                    if st.session_state.current_index < len(st.session_state.questions) - 1:
+                        st.session_state.current_index += 1
+                        st.session_state.phase = 'ready'
+                        st.session_state.recorded_video = None
+                        st.session_state.analysis_result = None
+                    else:
+                        st.session_state.page = 'home'
+                    st.rerun()
+
+
+def render_review():
+    """연습 기록 페이지"""
+    st.markdown('<p class="main-header">📊 연습 기록</p>', unsafe_allow_html=True)
+
+    if st.button("← 홈으로"):
+        st.session_state.page = 'home'
+        st.rerun()
+
+    if not st.session_state.practice_history:
+        st.info("아직 연습 기록이 없습니다. 연습을 시작해보세요!")
+        if st.button("🚀 연습 시작하기", type="primary"):
+            st.session_state.page = 'home'
+            st.rerun()
+        return
+
+    # 통계
+    scores = [r["score"] for r in st.session_state.practice_history]
+    avg_score = sum(scores) / len(scores)
+
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric("총 연습 횟수", f"{len(st.session_state.practice_history)}회")
+    with col2:
+        st.metric("평균 점수", f"{avg_score:.1f}점")
+    with col3:
+        st.metric("최고 점수", f"{max(scores)}점")
+
+    st.divider()
+
+    # 기록 목록
+    for i, record in enumerate(reversed(st.session_state.practice_history)):
+        with st.expander(f"**{record['question'][:40]}...** | {record['score']}점 | {record.get('category', '')}"):
+            st.write(f"**점수:** {record['score']}점")
+            st.write(f"**답변:** {record.get('transcript', '없음')}")
+            st.write(f"**분석:** {record.get('structure', '없음')}")
+            st.caption(f"연습 시간: {record.get('timestamp', '')}")
+
+
+# 사이드바
+def render_sidebar():
+    with st.sidebar:
+        st.markdown("## 📌 메뉴")
+
+        if st.button("🏠 홈", use_container_width=True):
+            st.session_state.page = 'home'
+            st.rerun()
+
+        if st.button("📊 연습 기록", use_container_width=True):
+            st.session_state.page = 'review'
+            st.rerun()
+
+        st.divider()
+
+        st.markdown("### ℹ️ 안내")
+        st.caption("""
+        - 카메라/마이크 권한 필요
+        - 준비시간 30초, 답변시간 60초
+        - AI 분석으로 피드백 제공
+        """)
+
+        st.divider()
+        st.caption("대한항공 영상면접 연습 v1.0")
+
+
+# 메인
+def main():
+    render_sidebar()
+
+    if st.session_state.page == 'home':
+        render_home()
+    elif st.session_state.page == 'practice':
+        render_practice()
+    elif st.session_state.page == 'review':
+        render_review()
+
+
+if __name__ == "__main__":
+    main()
