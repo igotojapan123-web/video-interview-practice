@@ -270,8 +270,8 @@ def analyze_answer(audio_path: str, question: str, keywords: list) -> dict:
 
     # 2. GPT로 답변 분석
     analysis_prompt = f"""
-당신은 대한항공 객실승무원 면접 전문가입니다.
-지원자의 영상면접 답변을 분석해주세요.
+당신은 10년 경력의 대한항공 객실승무원 면접관입니다.
+지원자의 영상면접 답변을 **실제 면접처럼 엄격하게** 평가해주세요.
 
 ## 질문
 {question}
@@ -282,23 +282,59 @@ def analyze_answer(audio_path: str, question: str, keywords: list) -> dict:
 ## 평가 기준 키워드
 {', '.join(keywords)}
 
+## ⚠️ 엄격한 점수 기준 (반드시 준수!)
+
+### 90-100점: 합격권 (상위 5%)
+- 질문 의도를 완벽히 파악
+- 구체적인 경험/사례 포함
+- 논리적 구조 (두괄식 + 근거 + 마무리)
+- 핵심 키워드 대부분 언급
+- 진정성이 느껴지는 답변
+
+### 70-89점: 양호 (상위 30%)
+- 질문에 적절히 답변
+- 일부 구체적 사례 포함
+- 기본적인 논리 구조 있음
+- 일부 키워드 언급
+
+### 50-69점: 보통 (평균)
+- 질문에 답변했으나 구체성 부족
+- 두루뭉술한 일반적 답변
+- 구조가 다소 산만함
+- 암기한 듯한 느낌
+
+### 30-49점: 미흡
+- 질문 의도 파악 부족
+- 구체적 내용 없음
+- 너무 짧거나 횡설수설
+- 준비 부족이 느껴짐
+
+### 0-29점: 심각
+- 질문과 무관한 답변
+- 답변 거의 없음
+- 의미없는 내용
+
+## 감점 요소
+- 너무 짧은 답변 (30초 미만): -15점
+- 구체적 사례/경험 없음: -10점
+- 두괄식 구조 없음: -5점
+- 횡설수설/반복: -10점
+- 핵심 키워드 누락 (각 -3점)
+- "어...", "음..." 등 필러워드 과다: -5점
+
 ## 분석 요청
 다음 형식으로 JSON 응답해주세요:
 
 {{
-  "score": (0-100 점수),
+  "score": (위 기준에 따른 0-100 점수 - 엄격하게!),
   "structure": (답변 구조 평가 - 두괄식인지, 논리적 흐름이 있는지),
   "keywords": (답변에 포함된 키워드 배열),
   "missingKeywords": (누락된 키워드 배열),
   "length": (답변 길이 평가 - 적절/짧음/길음),
-  "suggestions": (개선 제안 3개 배열)
+  "suggestions": (개선 제안 3개 배열 - 구체적으로)
 }}
 
-평가 시 주의사항:
-- 승무원 면접 답변으로서 적절한지 평가
-- 진정성, 구체성, 논리성을 중점 평가
-- 실제 면접관 관점에서 피드백
-- 개선 제안은 구체적이고 실행 가능하게
+⚠️ 중요: 평균 지원자의 점수는 50-65점대입니다. 80점 이상은 정말 잘한 경우에만 주세요!
 """
 
     try:
@@ -307,7 +343,12 @@ def analyze_answer(audio_path: str, question: str, keywords: list) -> dict:
             messages=[
                 {
                     "role": "system",
-                    "content": "항공사 면접 전문가로서 답변을 분석합니다. 반드시 JSON 형식으로만 응답하세요."
+                    "content": """당신은 엄격하지만 공정한 대한항공 면접관입니다.
+실제 면접처럼 냉정하게 평가합니다.
+- 평균 점수는 55점 내외입니다
+- 80점 이상은 정말 뛰어난 답변에만 부여합니다
+- 구체적 경험이 없으면 높은 점수를 주지 마세요
+- 반드시 JSON 형식으로만 응답하세요"""
                 },
                 {
                     "role": "user",
@@ -315,7 +356,7 @@ def analyze_answer(audio_path: str, question: str, keywords: list) -> dict:
                 }
             ],
             response_format={"type": "json_object"},
-            temperature=0.7
+            temperature=0.3
         )
 
         analysis = json.loads(completion.choices[0].message.content)
@@ -325,13 +366,13 @@ def analyze_answer(audio_path: str, question: str, keywords: list) -> dict:
     except Exception as e:
         return {
             "error": str(e),
-            "score": 50,
+            "score": 40,
             "transcript": transcript,
             "structure": "분석 중 오류 발생",
             "keywords": [],
             "missingKeywords": keywords,
             "length": "분석 불가",
-            "suggestions": [f"오류: {str(e)}"]
+            "suggestions": ["다시 녹화해보세요", "조용한 환경에서 녹음하세요", f"오류: {str(e)}"]
         }
 
 
@@ -737,23 +778,75 @@ def render_kal2026_step7():
     # AI 분석 수행
     if st.session_state.analysis_result is None:
         with st.spinner("AI가 답변을 분석하고 있습니다..."):
-            # 데모용 분석 결과
             selected = KAL_2026_OPTIONAL_QUESTIONS[st.session_state.selected_optional]
             combined_keywords = KAL_2026_COMMON_QUESTION['keywords'] + selected['keywords']
+            combined_question = f"""[공통문항] {KAL_2026_COMMON_QUESTION['question']}
 
-            result = {
-                "score": 78,
-                "transcript": "녹화된 음성이 여기에 표시됩니다. 실제 배포 시 마이크 권한을 허용하면 음성 인식이 작동합니다.",
-                "structure": "두괄식 구조로 핵심가치를 먼저 밝히고 경험을 연결지어 잘 답변하셨습니다.",
-                "keywords": ["핵심가치", "경험"],
-                "missingKeywords": ["구체적 사례", "성장"],
-                "length": "적절",
-                "suggestions": [
-                    "선택한 핵심가치와 본인의 경험을 더 구체적으로 연결해보세요",
-                    "STAR 기법(상황-과제-행동-결과)을 활용해보세요",
-                    "마무리 멘트에서 대한항공에 대한 포부를 추가하면 좋겠습니다"
-                ]
-            }
+[선택문항: {selected['title']}] {selected['question']}"""
+
+            # 실제 오디오 데이터가 있는 경우 분석
+            result = None
+            audio_analyzed = False
+
+            # webrtc에서 녹음된 오디오가 있는지 확인
+            if hasattr(st.session_state, 'audio_frames') and st.session_state.audio_frames:
+                try:
+                    import numpy as np
+                    from pydub import AudioSegment
+                    import io
+
+                    # 오디오 프레임을 하나로 합치기
+                    audio_data = np.concatenate(st.session_state.audio_frames)
+
+                    # WAV 파일로 변환
+                    audio_segment = AudioSegment(
+                        audio_data.tobytes(),
+                        frame_rate=48000,
+                        sample_width=2,
+                        channels=1
+                    )
+
+                    # 임시 파일로 저장
+                    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
+                        audio_segment.export(f.name, format="wav")
+                        result = analyze_answer(f.name, combined_question, combined_keywords)
+                        audio_analyzed = True
+                        os.unlink(f.name)  # 임시 파일 삭제
+
+                except Exception as e:
+                    st.warning(f"음성 분석 중 오류가 발생했습니다: {str(e)}")
+
+            # 오디오 분석이 안 된 경우 데모 모드
+            if result is None:
+                import random
+                # 더 현실적인 점수 분포 (평균 55점, 표준편차 15)
+                demo_score = max(25, min(85, int(random.gauss(55, 15))))
+
+                if demo_score >= 70:
+                    structure_comment = "답변 구조가 비교적 잘 갖춰져 있습니다. 두괄식으로 핵심을 먼저 말하고 근거를 제시했습니다."
+                    length_comment = "적절"
+                elif demo_score >= 50:
+                    structure_comment = "기본적인 구조는 있으나, 두괄식 구조가 명확하지 않습니다. 핵심 메시지를 먼저 말해보세요."
+                    length_comment = "다소 짧음"
+                else:
+                    structure_comment = "답변 구조가 산만합니다. 핵심 주장 → 근거/경험 → 마무리 순서로 정리해보세요."
+                    length_comment = "짧음"
+
+                result = {
+                    "score": demo_score,
+                    "transcript": "[데모 모드] 실제 마이크 녹음이 감지되지 않았습니다. 마이크 권한을 허용하고 다시 시도해보세요.",
+                    "structure": structure_comment,
+                    "keywords": random.sample(combined_keywords, min(2, len(combined_keywords))),
+                    "missingKeywords": [k for k in combined_keywords if random.random() > 0.4],
+                    "length": length_comment,
+                    "suggestions": [
+                        "선택한 핵심가치를 답변 첫 문장에서 명확히 밝혀주세요",
+                        "본인만의 구체적인 경험/사례를 반드시 포함하세요",
+                        "마무리에서 대한항공 승무원으로서의 포부를 간단히 덧붙이세요"
+                    ],
+                    "demo_mode": True
+                }
+
             st.session_state.analysis_result = result
 
             # 기록 저장
@@ -942,18 +1035,34 @@ def render_practice():
         elif phase == 'analyzing':
             st.markdown("### 🔄 AI 분석 중...")
             with st.spinner("음성을 텍스트로 변환하고 분석 중입니다..."):
+                import random
+
+                # 더 현실적인 점수 분포 (평균 55점)
+                demo_score = max(25, min(85, int(random.gauss(55, 15))))
+
+                if demo_score >= 70:
+                    structure_msg = "답변 구조가 잘 갖춰져 있습니다."
+                    length_msg = "적절"
+                elif demo_score >= 50:
+                    structure_msg = "기본 구조는 있으나 개선이 필요합니다."
+                    length_msg = "다소 짧음"
+                else:
+                    structure_msg = "답변 구조가 산만합니다. 두괄식으로 정리하세요."
+                    length_msg = "짧음"
+
                 result = {
-                    "score": 75,
-                    "transcript": "녹화된 음성이 여기에 표시됩니다.",
-                    "structure": "두괄식 구조로 잘 답변하셨습니다.",
-                    "keywords": ["서비스", "성장"],
-                    "missingKeywords": ["대한항공", "글로벌"],
-                    "length": "적절",
+                    "score": demo_score,
+                    "transcript": "[데모 모드] 마이크 권한을 허용하고 다시 시도해보세요.",
+                    "structure": structure_msg,
+                    "keywords": random.sample(question.keywords, min(2, len(question.keywords))),
+                    "missingKeywords": [k for k in question.keywords if random.random() > 0.5],
+                    "length": length_msg,
                     "suggestions": [
-                        "대한항공만의 차별점을 더 구체적으로 언급해보세요",
-                        "본인의 경험을 더 자세히 이야기해보세요",
-                        "마무리 멘트를 추가하면 더 좋을 것 같습니다"
-                    ]
+                        "질문의 핵심 키워드를 답변에 포함하세요",
+                        "본인만의 구체적인 경험을 이야기하세요",
+                        "결론을 명확하게 마무리하세요"
+                    ],
+                    "demo_mode": True
                 }
                 st.session_state.analysis_result = result
 
