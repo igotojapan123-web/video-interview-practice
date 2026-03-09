@@ -1,8 +1,22 @@
-"""대한항공 영상면접 질문 은행"""
+"""
+대한항공 영상면접 질문 은행
+2026 상반기 실제 면접 방식 반영
+"""
 
 from dataclasses import dataclass
 from typing import List
 import random
+
+__all__ = [
+    'Question',
+    'CATEGORIES',
+    'QUESTIONS',
+    'KAL_2026_COMMON_QUESTION',
+    'KAL_2026_OPTIONAL_QUESTIONS',
+    'get_questions_by_category',
+    'get_random_questions',
+    'get_question_by_id',
+]
 
 @dataclass
 class Question:
