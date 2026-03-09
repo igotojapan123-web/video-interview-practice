@@ -624,21 +624,16 @@ def render_kal2026_step3():
 
     st.divider()
 
-    col1, col2 = st.columns(2)
-    with col1:
-        if st.button("← 질문 다시 선택", use_container_width=True):
-            st.session_state.kal2026_step = 2
-            st.rerun()
-    with col2:
-        if st.button("준비 완료 → 녹화로 넘어가기", type="primary", use_container_width=True):
-            st.session_state.kal2026_step = 4
-            st.session_state.confirm_start_time = time.time()
-            st.rerun()
+    # 실제 면접에서는 뒤로 돌아갈 수 없으므로, 이전 단계 버튼 제거
+    if st.button("준비 완료 → 녹화로 넘어가기", type="primary", use_container_width=True):
+        st.session_state.kal2026_step = 4
+        st.session_state.confirm_start_time = time.time()
+        st.rerun()
 
 
 def render_kal2026_step4():
     """Step 4: 2분 확인 시간"""
-    st.markdown("### 제출 내용 확인 중... 녹화 준비를 해주세요")
+    st.markdown("### 🎬 녹화 준비를 해주세요")
 
     # 타이머
     if st.session_state.confirm_start_time is None:
@@ -653,35 +648,24 @@ def render_kal2026_step4():
     timer_class = "timer-warning" if remaining <= 30 else ""
     st.markdown(f'<div class="timer-box {timer_class}">{minutes:01d}:{seconds:02d}</div>', unsafe_allow_html=True)
 
-    st.divider()
-
-    # 준비 체크리스트
-    st.markdown("### ✅ 녹화 전 체크리스트")
+    # 안내 문구 (스크립트는 표시하지 않음)
     st.markdown("""
-    - 📹 카메라가 정상 작동하는지 확인하세요
-    - 🎤 마이크가 정상 작동하는지 확인하세요
-    - 💡 얼굴이 잘 보이도록 조명을 확인하세요
-    - 🔇 주변 소음을 최소화하세요
-    - 📝 스크립트 내용을 다시 한번 확인하세요
-    """)
-
-    # 스크립트 미리보기
-    with st.expander("📄 내 스크립트 확인"):
-        st.write(st.session_state.script_text if st.session_state.script_text else "(작성한 내용 없음)")
+    <div class="info-banner" style="text-align: center; font-size: 1.1rem;">
+        📹 <strong>카메라 위치, 조명, 복장을 최종 점검하세요.</strong><br><br>
+        ✅ 카메라가 눈높이에 있는지 확인<br>
+        ✅ 얼굴이 밝게 보이는지 확인<br>
+        ✅ 단정한 복장 착용<br>
+        ✅ 조용한 환경 확보
+    </div>
+    """, unsafe_allow_html=True)
 
     st.divider()
 
-    col1, col2 = st.columns(2)
-    with col1:
-        if st.button("← 스크립트 수정", use_container_width=True):
-            st.session_state.kal2026_step = 3
-            st.session_state.confirm_start_time = None
-            st.rerun()
-    with col2:
-        if st.button("⏩ 바로 녹화 시작", type="primary", use_container_width=True):
-            st.session_state.kal2026_step = 5
-            st.session_state.countdown_start_time = time.time()
-            st.rerun()
+    # 실제 면접에서는 뒤로 돌아갈 수 없으므로, 이전 단계 버튼 제거
+    if st.button("⏩ 바로 녹화 시작", type="primary", use_container_width=True):
+        st.session_state.kal2026_step = 5
+        st.session_state.countdown_start_time = time.time()
+        st.rerun()
 
     # 자동 넘어가기
     if remaining <= 0:
@@ -877,13 +861,21 @@ def render_kal2026_step7():
         st.write(f"**구조:** {result.get('structure', '')}")
         st.write(f"**길이:** {result.get('length', '')}")
 
-        st.write("**키워드:**")
-        keywords_html = ""
-        for kw in result.get("keywords", []):
-            keywords_html += f'<span class="keyword-found">✓ {kw}</span> '
-        for kw in result.get("missingKeywords", []):
-            keywords_html += f'<span class="keyword-missing">✗ {kw}</span> '
-        st.markdown(keywords_html, unsafe_allow_html=True)
+        # 포함된 키워드 (긍정적 피드백)
+        found_keywords = result.get("keywords", [])
+        if found_keywords:
+            st.write("**✨ 이런 키워드가 포함됐어요:**")
+            keywords_html = ""
+            for kw in found_keywords:
+                keywords_html += f'<span class="keyword-found">✓ {kw}</span> '
+            st.markdown(keywords_html, unsafe_allow_html=True)
+
+        # 미포함 키워드 (부드러운 제안)
+        missing_keywords = result.get("missingKeywords", [])
+        if missing_keywords:
+            st.write("")
+            missing_list = "', '".join(missing_keywords)
+            st.info(f"💡 **'{missing_list}'** 키워드도 넣어보면 답변이 더 풍성해질 수 있어요!")
 
     with tab3:
         for sug in result.get("suggestions", []):
@@ -1095,13 +1087,21 @@ def render_practice():
                 st.write(f"**구조:** {result.get('structure', '')}")
                 st.write(f"**길이:** {result.get('length', '')}")
 
-                st.write("**키워드:**")
-                keywords_html = ""
-                for kw in result.get("keywords", []):
-                    keywords_html += f'<span class="keyword-found">✓ {kw}</span> '
-                for kw in result.get("missingKeywords", []):
-                    keywords_html += f'<span class="keyword-missing">✗ {kw}</span> '
-                st.markdown(keywords_html, unsafe_allow_html=True)
+                # 포함된 키워드 (긍정적 피드백)
+                found_keywords = result.get("keywords", [])
+                if found_keywords:
+                    st.write("**✨ 이런 키워드가 포함됐어요:**")
+                    keywords_html = ""
+                    for kw in found_keywords:
+                        keywords_html += f'<span class="keyword-found">✓ {kw}</span> '
+                    st.markdown(keywords_html, unsafe_allow_html=True)
+
+                # 미포함 키워드 (부드러운 제안)
+                missing_keywords = result.get("missingKeywords", [])
+                if missing_keywords:
+                    st.write("")
+                    missing_list = "', '".join(missing_keywords)
+                    st.info(f"💡 **'{missing_list}'** 키워드도 넣어보면 답변이 더 풍성해질 수 있어요!")
 
             with tab3:
                 for sug in result.get("suggestions", []):
