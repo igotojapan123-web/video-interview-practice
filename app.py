@@ -331,8 +331,19 @@ def analyze_answer(audio_path: str, question: str, keywords: list) -> dict:
   "keywords": (답변에 포함된 키워드 배열),
   "missingKeywords": (누락된 키워드 배열),
   "length": (답변 길이 평가 - 적절/짧음/길음),
-  "suggestions": (개선 제안 3개 배열 - 구체적으로)
+  "suggestions": (개선 제안 3개 배열 - 아래 톤 가이드 참고)
 }}
+
+## suggestions 톤 가이드 (코칭/응원 느낌으로!)
+- "~하세요" 대신 → "~해보면 좋아요" 또는 "~하면 더 좋아질 수 있어요"
+- "반드시" → 사용 금지
+- "명확히" → "자연스럽게"
+- 문장 끝에 긍정적 뉘앙스 추가
+
+예시:
+- "선택한 핵심가치를 첫 문장에서 자연스럽게 언급하면 인상이 더 강해질 수 있어요"
+- "본인만의 경험이나 사례를 하나 넣어보면 답변이 훨씬 생생해져요"
+- "마지막에 승무원으로서의 포부를 한 마디 덧붙이면 마무리가 깔끔해져요"
 
 ⚠️ 중요: 평균 지원자의 점수는 50-65점대입니다. 80점 이상은 정말 잘한 경우에만 주세요!
 """
@@ -802,31 +813,17 @@ def render_kal2026_step7():
             # 오디오 분석이 안 된 경우 데모 모드
             if result is None:
                 import random
-                # 더 현실적인 점수 분포 (평균 55점, 표준편차 15)
-                demo_score = max(25, min(85, int(random.gauss(55, 15))))
 
-                if demo_score >= 70:
-                    structure_comment = "답변 구조가 비교적 잘 갖춰져 있습니다. 두괄식으로 핵심을 먼저 말하고 근거를 제시했습니다."
-                    length_comment = "적절"
-                elif demo_score >= 50:
-                    structure_comment = "기본적인 구조는 있으나, 두괄식 구조가 명확하지 않습니다. 핵심 메시지를 먼저 말해보세요."
-                    length_comment = "다소 짧음"
-                else:
-                    structure_comment = "답변 구조가 산만합니다. 핵심 주장 → 근거/경험 → 마무리 순서로 정리해보세요."
-                    length_comment = "짧음"
-
+                # 음성이 감지되지 않은 경우 - 분석 없이 안내 메시지만 표시
                 result = {
-                    "score": demo_score,
-                    "transcript": "[데모 모드] 실제 마이크 녹음이 감지되지 않았습니다. 마이크 권한을 허용하고 다시 시도해보세요.",
-                    "structure": structure_comment,
-                    "keywords": random.sample(combined_keywords, min(2, len(combined_keywords))),
-                    "missingKeywords": [k for k in combined_keywords if random.random() > 0.4],
-                    "length": length_comment,
-                    "suggestions": [
-                        "선택한 핵심가치를 답변 첫 문장에서 명확히 밝혀주세요",
-                        "본인만의 구체적인 경험/사례를 반드시 포함하세요",
-                        "마무리에서 대한항공 승무원으로서의 포부를 간단히 덧붙이세요"
-                    ],
+                    "score": 0,
+                    "transcript": "",
+                    "structure": "",
+                    "keywords": [],
+                    "missingKeywords": [],
+                    "length": "",
+                    "suggestions": [],
+                    "no_audio": True,  # 음성 미감지 플래그
                     "demo_mode": True
                 }
 
@@ -845,40 +842,52 @@ def render_kal2026_step7():
 
     result = st.session_state.analysis_result
 
-    # 점수 표시
-    score = result.get("score", 0)
-    score_class = "score-high" if score >= 80 else ("score-mid" if score >= 60 else "score-low")
-    st.markdown(f'<div class="score-box {score_class}">{score}점</div>', unsafe_allow_html=True)
+    # 음성 미감지 시 안내 메시지만 표시
+    if result.get("no_audio"):
+        st.warning("🎤 **음성이 감지되지 않았습니다.**")
+        st.info("""
+        마이크가 제대로 연결되어 있는지 확인하고 다시 연습해보세요.
 
-    # 탭으로 분석 결과 표시
-    tab1, tab2, tab3 = st.tabs(["📝 내 답변", "📊 분석", "💡 개선점"])
+        **체크리스트:**
+        - 브라우저에서 마이크 권한을 허용했는지 확인
+        - 마이크가 음소거되어 있지 않은지 확인
+        - 조용한 환경에서 충분한 볼륨으로 말하기
+        """)
+    else:
+        # 점수 표시
+        score = result.get("score", 0)
+        score_class = "score-high" if score >= 80 else ("score-mid" if score >= 60 else "score-low")
+        st.markdown(f'<div class="score-box {score_class}">{score}점</div>', unsafe_allow_html=True)
 
-    with tab1:
-        st.write(result.get("transcript", ""))
+        # 탭으로 분석 결과 표시
+        tab1, tab2, tab3 = st.tabs(["📝 내 답변", "📊 분석", "💡 개선점"])
 
-    with tab2:
-        st.write(f"**구조:** {result.get('structure', '')}")
-        st.write(f"**길이:** {result.get('length', '')}")
+        with tab1:
+            st.write(result.get("transcript", ""))
 
-        # 포함된 키워드 (긍정적 피드백)
-        found_keywords = result.get("keywords", [])
-        if found_keywords:
-            st.write("**✨ 이런 키워드가 포함됐어요:**")
-            keywords_html = ""
-            for kw in found_keywords:
-                keywords_html += f'<span class="keyword-found">✓ {kw}</span> '
-            st.markdown(keywords_html, unsafe_allow_html=True)
+        with tab2:
+            st.write(f"**구조:** {result.get('structure', '')}")
+            st.write(f"**길이:** {result.get('length', '')}")
 
-        # 미포함 키워드 (부드러운 제안)
-        missing_keywords = result.get("missingKeywords", [])
-        if missing_keywords:
-            st.write("")
-            missing_list = "', '".join(missing_keywords)
-            st.info(f"💡 **'{missing_list}'** 키워드도 넣어보면 답변이 더 풍성해질 수 있어요!")
+            # 포함된 키워드 (긍정적 피드백)
+            found_keywords = result.get("keywords", [])
+            if found_keywords:
+                st.write("**✨ 이런 키워드가 포함됐어요:**")
+                keywords_html = ""
+                for kw in found_keywords:
+                    keywords_html += f'<span class="keyword-found">✓ {kw}</span> '
+                st.markdown(keywords_html, unsafe_allow_html=True)
 
-    with tab3:
-        for sug in result.get("suggestions", []):
-            st.info(f"💡 {sug}")
+            # 미포함 키워드 (부드러운 제안)
+            missing_keywords = result.get("missingKeywords", [])
+            if missing_keywords:
+                st.write("")
+                missing_list = "', '".join(missing_keywords)
+                st.info(f"💡 **'{missing_list}'** 키워드도 넣어보면 답변이 더 풍성해질 수 있어요!")
+
+        with tab3:
+            for sug in result.get("suggestions", []):
+                st.info(f"💡 {sug}")
 
     st.divider()
 
@@ -1041,18 +1050,16 @@ def render_practice():
                     structure_msg = "답변 구조가 산만합니다. 두괄식으로 정리하세요."
                     length_msg = "짧음"
 
+                # 음성 미감지 - 분석 없이 안내만
                 result = {
-                    "score": demo_score,
-                    "transcript": "[데모 모드] 마이크 권한을 허용하고 다시 시도해보세요.",
-                    "structure": structure_msg,
-                    "keywords": random.sample(question.keywords, min(2, len(question.keywords))),
-                    "missingKeywords": [k for k in question.keywords if random.random() > 0.5],
-                    "length": length_msg,
-                    "suggestions": [
-                        "질문의 핵심 키워드를 답변에 포함하세요",
-                        "본인만의 구체적인 경험을 이야기하세요",
-                        "결론을 명확하게 마무리하세요"
-                    ],
+                    "score": 0,
+                    "transcript": "",
+                    "structure": "",
+                    "keywords": [],
+                    "missingKeywords": [],
+                    "length": "",
+                    "suggestions": [],
+                    "no_audio": True,
                     "demo_mode": True
                 }
                 st.session_state.analysis_result = result
@@ -1073,38 +1080,50 @@ def render_practice():
         elif phase == 'result':
             result = st.session_state.analysis_result
 
-            score = result.get("score", 0)
-            score_class = "score-high" if score >= 80 else ("score-mid" if score >= 60 else "score-low")
-            st.markdown(f'<div class="score-box {score_class}">{score}점</div>', unsafe_allow_html=True)
+            # 음성 미감지 시 안내 메시지만 표시
+            if result.get("no_audio"):
+                st.warning("🎤 **음성이 감지되지 않았습니다.**")
+                st.info("""
+                마이크가 제대로 연결되어 있는지 확인하고 다시 연습해보세요.
 
-            tab1, tab2, tab3 = st.tabs(["📝 내 답변", "📊 분석", "💡 개선점"])
+                **체크리스트:**
+                - 브라우저에서 마이크 권한을 허용했는지 확인
+                - 마이크가 음소거되어 있지 않은지 확인
+                - 조용한 환경에서 충분한 볼륨으로 말하기
+                """)
+            else:
+                score = result.get("score", 0)
+                score_class = "score-high" if score >= 80 else ("score-mid" if score >= 60 else "score-low")
+                st.markdown(f'<div class="score-box {score_class}">{score}점</div>', unsafe_allow_html=True)
 
-            with tab1:
-                st.write(result.get("transcript", ""))
+                tab1, tab2, tab3 = st.tabs(["📝 내 답변", "📊 분석", "💡 개선점"])
 
-            with tab2:
-                st.write(f"**구조:** {result.get('structure', '')}")
-                st.write(f"**길이:** {result.get('length', '')}")
+                with tab1:
+                    st.write(result.get("transcript", ""))
 
-                # 포함된 키워드 (긍정적 피드백)
-                found_keywords = result.get("keywords", [])
-                if found_keywords:
-                    st.write("**✨ 이런 키워드가 포함됐어요:**")
-                    keywords_html = ""
-                    for kw in found_keywords:
-                        keywords_html += f'<span class="keyword-found">✓ {kw}</span> '
-                    st.markdown(keywords_html, unsafe_allow_html=True)
+                with tab2:
+                    st.write(f"**구조:** {result.get('structure', '')}")
+                    st.write(f"**길이:** {result.get('length', '')}")
 
-                # 미포함 키워드 (부드러운 제안)
-                missing_keywords = result.get("missingKeywords", [])
-                if missing_keywords:
-                    st.write("")
-                    missing_list = "', '".join(missing_keywords)
-                    st.info(f"💡 **'{missing_list}'** 키워드도 넣어보면 답변이 더 풍성해질 수 있어요!")
+                    # 포함된 키워드 (긍정적 피드백)
+                    found_keywords = result.get("keywords", [])
+                    if found_keywords:
+                        st.write("**✨ 이런 키워드가 포함됐어요:**")
+                        keywords_html = ""
+                        for kw in found_keywords:
+                            keywords_html += f'<span class="keyword-found">✓ {kw}</span> '
+                        st.markdown(keywords_html, unsafe_allow_html=True)
 
-            with tab3:
-                for sug in result.get("suggestions", []):
-                    st.info(f"💡 {sug}")
+                    # 미포함 키워드 (부드러운 제안)
+                    missing_keywords = result.get("missingKeywords", [])
+                    if missing_keywords:
+                        st.write("")
+                        missing_list = "', '".join(missing_keywords)
+                        st.info(f"💡 **'{missing_list}'** 키워드도 넣어보면 답변이 더 풍성해질 수 있어요!")
+
+                with tab3:
+                    for sug in result.get("suggestions", []):
+                        st.info(f"💡 {sug}")
 
             st.divider()
 
