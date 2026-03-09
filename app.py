@@ -1,5 +1,6 @@
 """
 대한항공 영상면접 연습 - Streamlit 앱
+2026 상반기 실제 면접 방식 반영
 """
 
 import streamlit as st
@@ -21,7 +22,9 @@ from questions import (
     QUESTIONS, CATEGORIES,
     get_questions_by_category,
     get_random_questions,
-    get_question_by_id
+    get_question_by_id,
+    KAL_2026_COMMON_QUESTION,
+    KAL_2026_OPTIONAL_QUESTIONS
 )
 
 # 페이지 설정
@@ -51,14 +54,23 @@ st.markdown("""
         padding: 2rem;
         border-radius: 1rem;
         margin: 1rem 0;
-        font-size: 1.3rem;
-        text-align: center;
+        font-size: 1.1rem;
+        line-height: 1.6;
+    }
+    .common-question-box {
+        background: linear-gradient(135deg, #0062B1 0%, #004080 100%);
+        color: white;
+        padding: 1.5rem;
+        border-radius: 1rem;
+        margin: 1rem 0;
+        font-size: 1rem;
+        line-height: 1.6;
     }
     .timer-box {
-        font-size: 3rem;
+        font-size: 4rem;
         font-weight: bold;
         text-align: center;
-        padding: 1rem;
+        padding: 2rem;
     }
     .timer-warning {
         color: #ff4444;
@@ -67,6 +79,13 @@ st.markdown("""
     @keyframes pulse {
         0%, 100% { opacity: 1; }
         50% { opacity: 0.5; }
+    }
+    .countdown-box {
+        font-size: 8rem;
+        font-weight: bold;
+        text-align: center;
+        padding: 3rem;
+        color: #0062B1;
     }
     .tip-box {
         background: #f0f7ff;
@@ -100,17 +119,48 @@ st.markdown("""
         margin: 0.2rem;
         display: inline-block;
     }
-    .category-card {
+    .option-card {
         background: white;
         padding: 1.5rem;
         border-radius: 1rem;
         box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-        text-align: center;
+        margin: 0.5rem 0;
         cursor: pointer;
-        transition: transform 0.2s;
+        transition: all 0.2s;
+        border: 2px solid transparent;
     }
-    .category-card:hover {
-        transform: translateY(-5px);
+    .option-card:hover {
+        transform: translateY(-3px);
+        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    }
+    .option-card-selected {
+        border: 2px solid #0062B1;
+        background: #f0f7ff;
+    }
+    .info-banner {
+        background: #e3f2fd;
+        border-left: 4px solid #0062B1;
+        padding: 1rem 1.5rem;
+        margin: 1rem 0;
+        border-radius: 0 0.5rem 0.5rem 0;
+    }
+    .step-indicator {
+        display: flex;
+        justify-content: center;
+        gap: 0.5rem;
+        margin: 1rem 0;
+    }
+    .step-dot {
+        width: 12px;
+        height: 12px;
+        border-radius: 50%;
+        background: #ddd;
+    }
+    .step-dot-active {
+        background: #0062B1;
+    }
+    .step-dot-done {
+        background: #28a745;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -125,7 +175,7 @@ def init_session_state():
     if 'current_index' not in st.session_state:
         st.session_state.current_index = 0
     if 'phase' not in st.session_state:
-        st.session_state.phase = 'ready'  # ready, prep, recording, review, analyzing, result
+        st.session_state.phase = 'ready'
     if 'recorded_video' not in st.session_state:
         st.session_state.recorded_video = None
     if 'analysis_result' not in st.session_state:
@@ -138,6 +188,19 @@ def init_session_state():
         st.session_state.is_recording = False
     if 'audio_frames' not in st.session_state:
         st.session_state.audio_frames = []
+    # 2026 상반기 전용 상태
+    if 'kal2026_step' not in st.session_state:
+        st.session_state.kal2026_step = 1  # 1~7
+    if 'answer_time' not in st.session_state:
+        st.session_state.answer_time = 90  # 기본 90초
+    if 'selected_optional' not in st.session_state:
+        st.session_state.selected_optional = None  # 선택문항 인덱스
+    if 'script_text' not in st.session_state:
+        st.session_state.script_text = ""  # 스크립트 내용
+    if 'confirm_start_time' not in st.session_state:
+        st.session_state.confirm_start_time = None
+    if 'countdown_start_time' not in st.session_state:
+        st.session_state.countdown_start_time = None
 
 init_session_state()
 
@@ -279,12 +342,29 @@ def render_home():
     st.markdown('<p class="main-header">✈️ 대한항공 영상면접 연습</p>', unsafe_allow_html=True)
     st.markdown('<p class="sub-header">실전처럼 연습하고, AI 피드백으로 개선하세요</p>', unsafe_allow_html=True)
 
-    # 빠른 시작
-    st.subheader("🚀 빠른 시작")
+    # 2026 상반기 연습 (메인)
+    st.subheader("🆕 2026 상반기 실제 면접 연습")
+    st.markdown("""
+    <div class="info-banner">
+        ℹ️ 실제 면접 프로세스를 그대로 재현합니다: 질문 선택 → 스크립트 작성 → 2분 확인 → 녹화
+    </div>
+    """, unsafe_allow_html=True)
+
+    if st.button("🎬 2026 상반기 면접 연습 시작", type="primary", use_container_width=True):
+        st.session_state.page = 'kal2026'
+        st.session_state.kal2026_step = 1
+        st.session_state.selected_optional = None
+        st.session_state.script_text = ""
+        st.rerun()
+
+    st.divider()
+
+    # 빠른 시작 (기존 방식)
+    st.subheader("🚀 빠른 연습 (기존 방식)")
     col1, col2 = st.columns(2)
 
     with col1:
-        if st.button("🎲 랜덤 5문제 연습", use_container_width=True, type="primary"):
+        if st.button("🎲 랜덤 5문제 연습", use_container_width=True):
             st.session_state.questions = get_random_questions(5)
             st.session_state.current_index = 0
             st.session_state.phase = 'ready'
@@ -304,6 +384,8 @@ def render_home():
     cols = st.columns(len(CATEGORIES))
 
     for i, (cat_id, cat_info) in enumerate(CATEGORIES.items()):
+        if cat_id == 'kal2026':
+            continue  # 2026은 위에서 별도 처리
         with cols[i]:
             if st.button(f"{cat_info['icon']} {cat_info['name']}", use_container_width=True):
                 st.session_state.questions = get_questions_by_category(cat_id)
@@ -311,19 +393,6 @@ def render_home():
                 st.session_state.phase = 'ready'
                 st.session_state.page = 'practice'
                 st.rerun()
-
-    # 면접 흐름 안내
-    st.subheader("📋 영상면접 연습 흐름")
-    flow_cols = st.columns(4)
-
-    with flow_cols[0]:
-        st.info("**1. 질문 확인**\n\n화면에 질문 표시")
-    with flow_cols[1]:
-        st.info("**2. 준비시간**\n\n30초 생각 정리")
-    with flow_cols[2]:
-        st.info("**3. 답변 녹화**\n\n1분간 답변")
-    with flow_cols[3]:
-        st.info("**4. AI 분석**\n\n피드백 확인")
 
     # 연습 기록
     st.subheader("📊 내 연습 기록")
@@ -336,8 +405,419 @@ def render_home():
         st.caption("아직 연습 기록이 없습니다. 위에서 연습을 시작해보세요!")
 
 
+def render_kal2026():
+    """2026 상반기 면접 연습 페이지"""
+    step = st.session_state.kal2026_step
+
+    # 상단 네비게이션
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col1:
+        if st.button("← 홈으로"):
+            st.session_state.page = 'home'
+            st.session_state.kal2026_step = 1
+            st.rerun()
+    with col2:
+        st.caption(f"2026 상반기 면접 연습 | Step {step}/7")
+
+    # 스텝 인디케이터
+    step_html = '<div class="step-indicator">'
+    for i in range(1, 8):
+        if i < step:
+            step_html += '<div class="step-dot step-dot-done"></div>'
+        elif i == step:
+            step_html += '<div class="step-dot step-dot-active"></div>'
+        else:
+            step_html += '<div class="step-dot"></div>'
+    step_html += '</div>'
+    st.markdown(step_html, unsafe_allow_html=True)
+
+    # Step 1: 안내 화면
+    if step == 1:
+        render_kal2026_step1()
+    elif step == 2:
+        render_kal2026_step2()
+    elif step == 3:
+        render_kal2026_step3()
+    elif step == 4:
+        render_kal2026_step4()
+    elif step == 5:
+        render_kal2026_step5()
+    elif step == 6:
+        render_kal2026_step6()
+    elif step == 7:
+        render_kal2026_step7()
+
+
+def render_kal2026_step1():
+    """Step 1: 안내 화면"""
+    st.markdown("""
+    <div class="info-banner">
+        ℹ️ <strong>2026 상반기 실제 면접 기준으로 구성된 연습입니다.</strong><br>
+        실제 면접에서는 메일로 질문을 받고, 답변 스크립트를 파일로 제출한 후 녹화합니다.<br>
+        답변 시간은 안내 메일을 확인하세요.
+    </div>
+    """, unsafe_allow_html=True)
+
+    st.subheader("⏱️ 답변 녹화 시간 설정")
+
+    answer_time = st.number_input(
+        "답변 녹화 시간 (초)",
+        min_value=30,
+        max_value=300,
+        value=st.session_state.answer_time,
+        step=10,
+        help="실제 답변 시간은 안내 메일을 확인하세요"
+    )
+    st.session_state.answer_time = answer_time
+
+    st.caption("💡 실제 답변 시간은 안내 메일을 확인하세요")
+
+    st.divider()
+
+    st.subheader("📋 연습 진행 순서")
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.info("**1. 질문 선택**\n\n공통문항 확인\n+ 선택문항 1개 선택")
+    with col2:
+        st.info("**2. 스크립트 준비**\n\n답변 키워드를\n간략히 정리")
+    with col3:
+        st.info("**3. 2분 확인**\n\n제출 내용 확인\n녹화 준비")
+    with col4:
+        st.info("**4. 답변 녹화**\n\n카운트다운 후\n자동 녹화 시작")
+
+    st.divider()
+
+    if st.button("다음 단계로 →", type="primary", use_container_width=True):
+        st.session_state.kal2026_step = 2
+        st.rerun()
+
+
+def render_kal2026_step2():
+    """Step 2: 질문 선택 화면"""
+    st.subheader("📝 면접 질문")
+
+    # 공통문항
+    st.markdown("### 공통문항 (필수)")
+    st.markdown(f"""
+    <div class="common-question-box">
+        {KAL_2026_COMMON_QUESTION['question']}
+    </div>
+    """, unsafe_allow_html=True)
+
+    st.divider()
+
+    # 선택문항
+    st.markdown("### 선택문항 (4개 중 1개 선택)")
+
+    for idx, opt in enumerate(KAL_2026_OPTIONAL_QUESTIONS):
+        is_selected = st.session_state.selected_optional == idx
+        card_class = "option-card option-card-selected" if is_selected else "option-card"
+
+        col1, col2 = st.columns([5, 1])
+        with col1:
+            with st.container():
+                st.markdown(f"**{idx+1}. {opt['title']}**")
+                st.caption(opt['question'][:150] + "...")
+        with col2:
+            if st.button("선택" if not is_selected else "✓ 선택됨", key=f"opt_{idx}",
+                        type="primary" if is_selected else "secondary"):
+                st.session_state.selected_optional = idx
+                st.rerun()
+
+    st.divider()
+
+    # 선택된 문항 상세 표시
+    if st.session_state.selected_optional is not None:
+        selected = KAL_2026_OPTIONAL_QUESTIONS[st.session_state.selected_optional]
+        with st.expander(f"✅ 선택한 문항: {selected['title']}", expanded=True):
+            st.write(selected['question'])
+
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("← 이전", use_container_width=True):
+            st.session_state.kal2026_step = 1
+            st.rerun()
+    with col2:
+        if st.session_state.selected_optional is not None:
+            if st.button("연습 시작 →", type="primary", use_container_width=True):
+                st.session_state.kal2026_step = 3
+                st.rerun()
+        else:
+            st.button("선택문항을 선택해주세요", disabled=True, use_container_width=True)
+
+
+def render_kal2026_step3():
+    """Step 3: 스크립트 준비 화면"""
+    st.subheader("📝 스크립트 준비")
+
+    # 선택한 질문 표시
+    st.markdown("### 📌 공통문항")
+    st.markdown(f"""
+    <div class="common-question-box" style="font-size: 0.95rem;">
+        {KAL_2026_COMMON_QUESTION['question']}
+    </div>
+    """, unsafe_allow_html=True)
+
+    selected = KAL_2026_OPTIONAL_QUESTIONS[st.session_state.selected_optional]
+    st.markdown(f"### 📌 선택문항: {selected['title']}")
+    st.markdown(f"""
+    <div class="question-box" style="font-size: 0.95rem;">
+        {selected['question']}
+    </div>
+    """, unsafe_allow_html=True)
+
+    st.divider()
+
+    # 스크립트 입력
+    st.markdown("### ✏️ 답변 키워드를 간략히 요약해서 정리하세요")
+    script = st.text_area(
+        "스크립트",
+        value=st.session_state.script_text,
+        height=200,
+        placeholder="핵심 키워드와 답변 흐름을 정리해보세요...\n\n예시:\n- 선택한 핵심가치: Caring\n- 관련 경험: 봉사활동에서...\n- 강조할 포인트: ...",
+        label_visibility="collapsed"
+    )
+    st.session_state.script_text = script
+
+    st.caption("💡 실제 면접에서는 이 내용을 워드/한글 파일로 제출합니다")
+
+    st.divider()
+
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("← 질문 다시 선택", use_container_width=True):
+            st.session_state.kal2026_step = 2
+            st.rerun()
+    with col2:
+        if st.button("준비 완료 → 녹화로 넘어가기", type="primary", use_container_width=True):
+            st.session_state.kal2026_step = 4
+            st.session_state.confirm_start_time = time.time()
+            st.rerun()
+
+
+def render_kal2026_step4():
+    """Step 4: 2분 확인 시간"""
+    st.markdown("### 제출 내용 확인 중... 녹화 준비를 해주세요")
+
+    # 타이머
+    if st.session_state.confirm_start_time is None:
+        st.session_state.confirm_start_time = time.time()
+
+    elapsed = time.time() - st.session_state.confirm_start_time
+    remaining = max(0, 120 - int(elapsed))  # 2분 = 120초
+
+    minutes = remaining // 60
+    seconds = remaining % 60
+
+    timer_class = "timer-warning" if remaining <= 30 else ""
+    st.markdown(f'<div class="timer-box {timer_class}">{minutes:01d}:{seconds:02d}</div>', unsafe_allow_html=True)
+
+    st.divider()
+
+    # 준비 체크리스트
+    st.markdown("### ✅ 녹화 전 체크리스트")
+    st.markdown("""
+    - 📹 카메라가 정상 작동하는지 확인하세요
+    - 🎤 마이크가 정상 작동하는지 확인하세요
+    - 💡 얼굴이 잘 보이도록 조명을 확인하세요
+    - 🔇 주변 소음을 최소화하세요
+    - 📝 스크립트 내용을 다시 한번 확인하세요
+    """)
+
+    # 스크립트 미리보기
+    with st.expander("📄 내 스크립트 확인"):
+        st.write(st.session_state.script_text if st.session_state.script_text else "(작성한 내용 없음)")
+
+    st.divider()
+
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("← 스크립트 수정", use_container_width=True):
+            st.session_state.kal2026_step = 3
+            st.session_state.confirm_start_time = None
+            st.rerun()
+    with col2:
+        if st.button("⏩ 바로 녹화 시작", type="primary", use_container_width=True):
+            st.session_state.kal2026_step = 5
+            st.session_state.countdown_start_time = time.time()
+            st.rerun()
+
+    # 자동 넘어가기
+    if remaining <= 0:
+        st.session_state.kal2026_step = 5
+        st.session_state.countdown_start_time = time.time()
+        st.rerun()
+
+    time.sleep(1)
+    st.rerun()
+
+
+def render_kal2026_step5():
+    """Step 5: 5초 카운트다운"""
+    if st.session_state.countdown_start_time is None:
+        st.session_state.countdown_start_time = time.time()
+
+    elapsed = time.time() - st.session_state.countdown_start_time
+    remaining = max(0, 5 - int(elapsed))
+
+    st.markdown("### 🎬 녹화가 곧 시작됩니다")
+
+    if remaining > 0:
+        st.markdown(f'<div class="countdown-box">{remaining}</div>', unsafe_allow_html=True)
+        time.sleep(1)
+        st.rerun()
+    else:
+        st.session_state.kal2026_step = 6
+        st.session_state.record_start_time = time.time()
+        st.rerun()
+
+
+def render_kal2026_step6():
+    """Step 6: 답변 녹화"""
+    # 질문 표시
+    st.markdown("### 📌 공통문항")
+    st.markdown(f"""
+    <div class="common-question-box" style="font-size: 0.9rem; padding: 1rem;">
+        {KAL_2026_COMMON_QUESTION['question'][:200]}...
+    </div>
+    """, unsafe_allow_html=True)
+
+    selected = KAL_2026_OPTIONAL_QUESTIONS[st.session_state.selected_optional]
+    st.markdown(f"### 📌 선택문항: {selected['title']}")
+    st.markdown(f"""
+    <div class="question-box" style="font-size: 0.9rem; padding: 1rem;">
+        {selected['question'][:200]}...
+    </div>
+    """, unsafe_allow_html=True)
+
+    # 비디오 및 타이머
+    video_col, control_col = st.columns([2, 1])
+
+    with video_col:
+        ctx = webrtc_streamer(
+            key="video-interview-2026",
+            mode=WebRtcMode.SENDRECV,
+            media_stream_constraints={
+                "video": {"width": 640, "height": 480},
+                "audio": True
+            },
+            video_processor_factory=VideoRecorder,
+            async_processing=True,
+        )
+
+        if ctx.video_processor:
+            ctx.video_processor.is_recording = True
+            st.session_state.video_processor = ctx.video_processor
+
+    with control_col:
+        if 'record_start_time' not in st.session_state:
+            st.session_state.record_start_time = time.time()
+
+        elapsed = time.time() - st.session_state.record_start_time
+        remaining = max(0, st.session_state.answer_time - int(elapsed))
+
+        st.markdown("### 🔴 녹화 중")
+        timer_class = "timer-warning" if remaining <= 10 else ""
+        st.markdown(f'<div class="timer-box {timer_class}">{remaining}초</div>', unsafe_allow_html=True)
+
+        if remaining <= 0 or st.button("⏹️ 답변 완료", type="primary", use_container_width=True):
+            if hasattr(st.session_state, 'video_processor'):
+                st.session_state.video_processor.is_recording = False
+            st.session_state.kal2026_step = 7
+            st.rerun()
+
+        time.sleep(1)
+        st.rerun()
+
+
+def render_kal2026_step7():
+    """Step 7: AI 분석"""
+    st.markdown("### 🎉 녹화 완료!")
+
+    # AI 분석 수행
+    if st.session_state.analysis_result is None:
+        with st.spinner("AI가 답변을 분석하고 있습니다..."):
+            # 데모용 분석 결과
+            selected = KAL_2026_OPTIONAL_QUESTIONS[st.session_state.selected_optional]
+            combined_keywords = KAL_2026_COMMON_QUESTION['keywords'] + selected['keywords']
+
+            result = {
+                "score": 78,
+                "transcript": "녹화된 음성이 여기에 표시됩니다. 실제 배포 시 마이크 권한을 허용하면 음성 인식이 작동합니다.",
+                "structure": "두괄식 구조로 핵심가치를 먼저 밝히고 경험을 연결지어 잘 답변하셨습니다.",
+                "keywords": ["핵심가치", "경험"],
+                "missingKeywords": ["구체적 사례", "성장"],
+                "length": "적절",
+                "suggestions": [
+                    "선택한 핵심가치와 본인의 경험을 더 구체적으로 연결해보세요",
+                    "STAR 기법(상황-과제-행동-결과)을 활용해보세요",
+                    "마무리 멘트에서 대한항공에 대한 포부를 추가하면 좋겠습니다"
+                ]
+            }
+            st.session_state.analysis_result = result
+
+            # 기록 저장
+            record = {
+                "question": f"[2026] 공통문항 + {selected['title']}",
+                "category": "2026 상반기",
+                "score": result["score"],
+                "transcript": result["transcript"],
+                "structure": result["structure"],
+                "timestamp": datetime.now().isoformat()
+            }
+            st.session_state.practice_history.append(record)
+
+    result = st.session_state.analysis_result
+
+    # 점수 표시
+    score = result.get("score", 0)
+    score_class = "score-high" if score >= 80 else ("score-mid" if score >= 60 else "score-low")
+    st.markdown(f'<div class="score-box {score_class}">{score}점</div>', unsafe_allow_html=True)
+
+    # 탭으로 분석 결과 표시
+    tab1, tab2, tab3 = st.tabs(["📝 내 답변", "📊 분석", "💡 개선점"])
+
+    with tab1:
+        st.write(result.get("transcript", ""))
+
+    with tab2:
+        st.write(f"**구조:** {result.get('structure', '')}")
+        st.write(f"**길이:** {result.get('length', '')}")
+
+        st.write("**키워드:**")
+        keywords_html = ""
+        for kw in result.get("keywords", []):
+            keywords_html += f'<span class="keyword-found">✓ {kw}</span> '
+        for kw in result.get("missingKeywords", []):
+            keywords_html += f'<span class="keyword-missing">✗ {kw}</span> '
+        st.markdown(keywords_html, unsafe_allow_html=True)
+
+    with tab3:
+        for sug in result.get("suggestions", []):
+            st.info(f"💡 {sug}")
+
+    st.divider()
+
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("🔄 다시 연습", use_container_width=True):
+            st.session_state.kal2026_step = 1
+            st.session_state.selected_optional = None
+            st.session_state.script_text = ""
+            st.session_state.analysis_result = None
+            st.session_state.confirm_start_time = None
+            st.session_state.countdown_start_time = None
+            st.rerun()
+    with col2:
+        if st.button("🏠 홈으로", type="primary", use_container_width=True):
+            st.session_state.page = 'home'
+            st.session_state.kal2026_step = 1
+            st.session_state.analysis_result = None
+            st.rerun()
+
+
 def render_practice():
-    """연습 페이지"""
+    """기존 연습 페이지 (다른 카테고리용)"""
     if not st.session_state.questions:
         st.session_state.page = 'home'
         st.rerun()
@@ -364,7 +844,6 @@ def render_practice():
 
     with video_col:
         if phase in ['ready', 'prep', 'recording']:
-            # 웹캠 스트리밍
             ctx = webrtc_streamer(
                 key="video-interview",
                 mode=WebRtcMode.SENDRECV,
@@ -463,12 +942,10 @@ def render_practice():
         elif phase == 'analyzing':
             st.markdown("### 🔄 AI 분석 중...")
             with st.spinner("음성을 텍스트로 변환하고 분석 중입니다..."):
-                # 실제 구현에서는 녹화된 오디오 파일로 분석
-                # 데모용 더미 분석
                 result = {
                     "score": 75,
-                    "transcript": "녹화된 음성이 여기에 표시됩니다. 실제 배포 시 마이크 권한을 허용하면 음성 인식이 작동합니다.",
-                    "structure": "두괄식 구조로 잘 답변하셨습니다. 결론을 먼저 말하고 이유를 설명하는 방식이 좋습니다.",
+                    "transcript": "녹화된 음성이 여기에 표시됩니다.",
+                    "structure": "두괄식 구조로 잘 답변하셨습니다.",
                     "keywords": ["서비스", "성장"],
                     "missingKeywords": ["대한항공", "글로벌"],
                     "length": "적절",
@@ -480,7 +957,6 @@ def render_practice():
                 }
                 st.session_state.analysis_result = result
 
-                # 기록 저장
                 record = {
                     "question": question.question,
                     "category": question.category_name,
@@ -497,12 +973,10 @@ def render_practice():
         elif phase == 'result':
             result = st.session_state.analysis_result
 
-            # 점수
             score = result.get("score", 0)
             score_class = "score-high" if score >= 80 else ("score-mid" if score >= 60 else "score-low")
             st.markdown(f'<div class="score-box {score_class}">{score}점</div>', unsafe_allow_html=True)
 
-            # 탭으로 분석 결과 표시
             tab1, tab2, tab3 = st.tabs(["📝 내 답변", "📊 분석", "💡 개선점"])
 
             with tab1:
@@ -592,6 +1066,11 @@ def render_sidebar():
             st.session_state.page = 'home'
             st.rerun()
 
+        if st.button("🆕 2026 상반기 연습", use_container_width=True):
+            st.session_state.page = 'kal2026'
+            st.session_state.kal2026_step = 1
+            st.rerun()
+
         if st.button("📊 연습 기록", use_container_width=True):
             st.session_state.page = 'review'
             st.rerun()
@@ -601,12 +1080,13 @@ def render_sidebar():
         st.markdown("### ℹ️ 안내")
         st.caption("""
         - 카메라/마이크 권한 필요
-        - 준비시간 30초, 답변시간 60초
+        - 2026 상반기: 실제 면접 방식
         - AI 분석으로 피드백 제공
         """)
 
         st.divider()
-        st.caption("대한항공 영상면접 연습 v1.0")
+        st.caption("대한항공 영상면접 연습 v2.0")
+        st.caption("2026 상반기 업데이트")
 
 
 # 메인
@@ -615,6 +1095,8 @@ def main():
 
     if st.session_state.page == 'home':
         render_home()
+    elif st.session_state.page == 'kal2026':
+        render_kal2026()
     elif st.session_state.page == 'practice':
         render_practice()
     elif st.session_state.page == 'review':
