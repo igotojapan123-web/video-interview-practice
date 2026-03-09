@@ -592,7 +592,7 @@ def render_kal2026_step3():
     st.subheader("📝 스크립트 준비")
 
     # 선택한 질문 표시
-    st.markdown("### 📌 공통문항")
+    st.markdown("**📌 공통문항**")
     st.markdown(f"""
     <div class="common-question-box" style="font-size: 0.95rem;">
         {KAL_2026_COMMON_QUESTION['question']}
@@ -600,7 +600,7 @@ def render_kal2026_step3():
     """, unsafe_allow_html=True)
 
     selected = KAL_2026_OPTIONAL_QUESTIONS[st.session_state.selected_optional]
-    st.markdown(f"### 📌 선택문항: {selected['title']}")
+    st.markdown(f"**📌 선택문항: {selected['title']}**")
     st.markdown(f"""
     <div class="question-box" style="font-size: 0.95rem;">
         {selected['question']}
@@ -609,14 +609,13 @@ def render_kal2026_step3():
 
     st.divider()
 
-    # 스크립트 입력
-    st.markdown("### ✏️ 답변 키워드를 간략히 요약해서 정리하세요")
+    # 스크립트 입력 - 라벨을 text_area 내부로 이동
     script = st.text_area(
-        "스크립트",
+        "✏️ 답변 키워드를 간략히 요약해서 정리하세요",
         value=st.session_state.script_text,
         height=200,
         placeholder="핵심 키워드와 답변 흐름을 정리해보세요...\n\n예시:\n- 선택한 핵심가치: Caring\n- 관련 경험: 봉사활동에서...\n- 강조할 포인트: ...",
-        label_visibility="collapsed"
+        label_visibility="visible"
     )
     st.session_state.script_text = script
 
