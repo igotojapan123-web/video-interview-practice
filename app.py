@@ -35,37 +35,6 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# ===== 메인 웹사이트 유도 배너 =====
-st.markdown("""
-<div style="
-    background: linear-gradient(135deg, #7c3aed 0%, #4f46e5 100%);
-    color: white;
-    padding: 1.5rem 2rem;
-    border-radius: 1rem;
-    margin-bottom: 2rem;
-    text-align: center;
-    box-shadow: 0 4px 15px rgba(124, 58, 237, 0.3);
-">
-    <h2 style="margin: 0 0 0.5rem 0; font-size: 1.5rem;">🎉 FLYREADY 정식 버전이 출시되었습니다!</h2>
-    <p style="margin: 0 0 1rem 0; opacity: 0.9;">
-        더 많은 기능과 AI 면접 코칭을 경험해보세요. 3일간 무료 체험!
-    </p>
-    <a href="https://flyready.co.kr" target="_blank" style="
-        display: inline-block;
-        background: white;
-        color: #7c3aed;
-        padding: 0.75rem 2rem;
-        border-radius: 0.5rem;
-        text-decoration: none;
-        font-weight: bold;
-        font-size: 1.1rem;
-        transition: transform 0.2s;
-    ">
-        ✈️ FLYREADY 바로가기 →
-    </a>
-</div>
-""", unsafe_allow_html=True)
-
 # CSS 스타일
 st.markdown("""
 <style>
